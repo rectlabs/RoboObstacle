@@ -18,7 +18,7 @@ class DQN:
         self.eps_max = 1.0
         self.eps_decay_steps = 2000000
         self.replay_memory_size = 500
-        self.replay_memory = deque([], maxlen=self.replay_memory_size)
+        self.replay_memory = deque(np.zeros((9,500)), maxlen=self.replay_memory_size)
         n_steps = 4000000  # total number of training steps
         self.training_start = 10000  # start training after 10,000 game iterations
         self.training_interval = 4  # run a training step every 4 game iterations
@@ -38,7 +38,7 @@ class DQN:
 
     def DQNmodel(self):
         model = Sequential()
-        model.add(Dense(64, input_shape=(1,), activation='relu'))
+        model.add(Dense(64, input_shape=(10,), activation='relu'))
         model.add(Dense(64, activation='relu'))
         model.add(Dense(10, activation='softmax'))
         model.compile(loss='categorical_crossentropy',
@@ -51,9 +51,13 @@ class DQN:
         cols = [[], [], [], [], []]
         for idx in indices:
             memory = self.replay_memory[idx]
+            print('memory')
+            print(memory)
             for col, value in zip(cols, memory):
+                print(col, value)
                 col.append(value)
         cols = [np.array(col) for col in cols]
+        print(cols)
         return (cols[0], cols[1], cols[2].reshape(-1, 1), cols[3], cols[4].reshape(-1, 1))
 
     def epsilon_greedy(self, q_values, step):
@@ -63,6 +67,9 @@ class DQN:
             return np.random.randint(10)  # random action
         else:
             return np.argmax(q_values)  # optimal action
+
+
+    
 
 
 
@@ -79,19 +86,39 @@ class RoboObstacle:
         self.BLUE = (0, 0, 255)
 
         self.dict_shapes = {}
+        self.shapes_state = []
 
         self.Agent = DQN()
         pygame.init()
         self.FPS = fps
         self.fpsClock = pygame.time.Clock()
 
+    def trainDQN(self):
+        X_state_val, X_action_val, rewards, X_next_state_val, continues = (
+            self.Agent.sample_memories(self.Agent.batch_size))
+        
+        arr = [X_next_state_val]
+        next_q_values = self.Agent.model.predict(np.array(arr).reshape(1, -1))
+        max_next_q_values = np.max(
+            next_q_values, axis=1, keepdims=True)
+        y_val = rewards + continues * self.Agent.discount_rate * max_next_q_values
+
+        # Train the online DQN
+        self.Agent.model.fit(X_state_val, tf.keras.utils.to_categorical(
+            X_next_state_val, num_classes=10), verbose=0)
+
+
+        return True
+
     def show_n_shapes(self, n, y_location, generate_shapes = True):
         if generate_shapes == True:
             self.dict_shapes = {}
+            self.shapes_state = []
             # n varies from 0 to 7
             x_poses = [i for i in range(10)]
             for m in range(n):
                 x_position = np.random.choice(x_poses, replace = False)
+                self.shapes_state.append(x_position)
                 x_location = (x_position * 300)/ 10
                 choice = np.random.choice(['rect', 'circle'])
                 color = tuple([np.random.choice([i for i in range(255)]) for i in range(3)])
@@ -142,6 +169,14 @@ class RoboObstacle:
             self.show_n_shapes(number_of_obstacles, y_location = location, generate_shapes = False)
         return True
 
+    def evaluate(self, state):
+        obs, reward, done, info = '', False, True, 'failure'
+        if state in self.shapes_state:
+            reward = False
+        else:
+            reward = True
+        return obs, reward, done, info 
+
     def step(self, state):
         # Clear previous displays
 
@@ -153,22 +188,54 @@ class RoboObstacle:
         pygame.draw.rect(self.DISPLAYSURF, self.BLACK, (location, 270, 30, 30))
         self.display()
         time.sleep(0.5)
-        return
+
+        obs, reward, done, info = self.evaluate(state)
+        return obs, reward, done, info
+
+
+    def binaries(self):
+        binaries = []
+        for k in range(10):
+            if k in self.shapes_state:
+                binaries.append(1)
+            else:
+                binaries.append(0)
+
+        return binaries
 
 
 
 if __name__ == "__main__":
     robo = RoboObstacle()
     i = 0
-    while True:
+    state = 0
+    iterations = 20000
+    iteration = 0
+    successes = 0
+    while iteration < iterations:
         # display Obstacles
         robo.DISPLAYSURF.fill(robo.WHITE)
         robo.displayObstacles(i)
 
-        # agent make choice
-        choice = np.random.choice([i for i in range(10)])
-        robo.step(choice)
+        # binarize Obstacles
+        binaries = robo.binaries()
 
+        # agent make choice
+        # choice = np.random.choice([i for i in range(10)])
+        q_value = np.argmax(robo.Agent.model.predict(np.array(binaries).reshape(1, -1)))
+
+        obs, reward, done, info = robo.step(q_value)
+        action = robo.Agent.epsilon_greedy(q_value, iteration)
+        successes+= reward
+
+        next_state = state
+
+        # Let's memorize what just happened
+        robo.Agent.replay_memory.append(
+            (np.array(binaries).reshape(1, -1), action, reward, next_state, 1.0 - done))
+
+        # Train Network
+        robo.trainDQN()
         i+= 1
 
         if i == 10:

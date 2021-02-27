@@ -5,20 +5,21 @@ from pygame.locals import *
 from keras import Sequential, layers
 from keras.optimizers import Adam
 from keras.layers import Dense
+from keras.models import load_model
 from collections import deque
 pygame.init()
 
 
 
 class DQN:
-    def __init__(self):
+    def __init__(self, size = 5000):
         self.learning_rate = 0.001
         self.momentum = 0.95
         self.eps_min = 0.1
         self.eps_max = 1.0
         self.eps_decay_steps = 2000000
-        self.replay_memory_size = 500
-        self.replay_memory = deque(np.zeros((9,500)), maxlen=self.replay_memory_size)
+        self.replay_memory_size = size
+        self.replay_memory = deque([], maxlen=size)
         n_steps = 4000000  # total number of training steps
         self.training_start = 10000  # start training after 10,000 game iterations
         self.training_interval = 4  # run a training step every 4 game iterations
@@ -30,10 +31,23 @@ class DQN:
         self.batch_size = 100
         self.iteration = 0  # game iterations
         self.done = True  # env needs to be reset
+        self.recordReward = 0
 
         self.model = self.DQNmodel()
 
         
+        return
+
+    def initialization(self):
+        
+        return 
+    
+    def stats(self):
+        memory = list(self.replay_memory)
+        sizeOfMemory = len(memory)
+        self.recordReward += memory[-1][2]
+
+        # print('Total memory: ', str(sizeOfMemory), ' , total rewards: ', str(self.recordReward))
         return
 
     def DQNmodel(self):
@@ -51,14 +65,10 @@ class DQN:
         cols = [[], [], [], [], []]
         for idx in indices:
             memory = self.replay_memory[idx]
-            print('memory')
-            print(memory)
             for col, value in zip(cols, memory):
-                print(col, value)
                 col.append(value)
         cols = [np.array(col) for col in cols]
-        print(cols)
-        return (cols[0], cols[1], cols[2].reshape(-1, 1), cols[3], cols[4].reshape(-1, 1))
+        return (cols[0], cols[1], cols[2].reshape(-1, 1), cols[3].reshape(-1,1), cols[4].reshape(-1, 1))
 
     def epsilon_greedy(self, q_values, step):
         self.epsilon = max(self.eps_min, self.eps_max -
@@ -74,7 +84,7 @@ class DQN:
 
 
 class RoboObstacle:
-    def __init__(self, fps=50):
+    def __init__(self, fps=50, storageSize = 5000):
         # set up the window
         self.DISPLAYSURF = pygame.display.set_mode((300, 300), 0, 32)
         pygame.display.set_caption('RoboObstacle')
@@ -88,7 +98,7 @@ class RoboObstacle:
         self.dict_shapes = {}
         self.shapes_state = []
 
-        self.Agent = DQN()
+        self.Agent = DQN(size = storageSize)
         pygame.init()
         self.FPS = fps
         self.fpsClock = pygame.time.Clock()
@@ -97,13 +107,14 @@ class RoboObstacle:
         X_state_val, X_action_val, rewards, X_next_state_val, continues = (
             self.Agent.sample_memories(self.Agent.batch_size))
         
-        arr = [X_next_state_val]
-        next_q_values = self.Agent.model.predict(np.array(arr).reshape(1, -1))
+
+        next_q_values = self.Agent.model.predict(X_state_val)
         max_next_q_values = np.max(
             next_q_values, axis=1, keepdims=True)
         y_val = rewards + continues * self.Agent.discount_rate * max_next_q_values
 
         # Train the online DQN
+        # print('fitting: ', len(X_state_val), ' datas')
         self.Agent.model.fit(X_state_val, tf.keras.utils.to_categorical(
             X_next_state_val, num_classes=10), verbose=0)
 
@@ -187,7 +198,7 @@ class RoboObstacle:
         # display the robot
         pygame.draw.rect(self.DISPLAYSURF, self.BLACK, (location, 270, 30, 30))
         self.display()
-        time.sleep(0.5)
+        # time.sleep()
 
         obs, reward, done, info = self.evaluate(state)
         return obs, reward, done, info
@@ -204,12 +215,12 @@ class RoboObstacle:
         return binaries
 
 
-
-if __name__ == "__main__":
+def TestNetwork(iterations = 500):
+    # run the newly developed neural network to decide while faced with the obstacles in the environment.
+    model = load_model('./models/agent_A.h5')
     robo = RoboObstacle()
     i = 0
     state = 0
-    iterations = 20000
     iteration = 0
     successes = 0
     while iteration < iterations:
@@ -217,22 +228,67 @@ if __name__ == "__main__":
         robo.DISPLAYSURF.fill(robo.WHITE)
         robo.displayObstacles(i)
 
+        # predict movement
         # binarize Obstacles
-        binaries = robo.binaries()
+        binaries = np.array(robo.binaries()).reshape(1, -1)
+        q_value = np.argmax(model.predict(binaries))
+
+        # execute step
+        obs, reward, done, info = robo.step(q_value)
+        successes+= reward
+
+        i+= 1
+
+        if i == 10:
+            i = 0
+        else:
+            pass
+
+        iteration += 1
+
+
+        if 0xFF == ord('q'):
+            break
+    return successes, iterations
+
+
+
+def TrainNetwork(iterations = 50, model_name = 'agent_'):
+    robo = RoboObstacle(storageSize = iterations)
+    print(len(list(robo.Agent.replay_memory)))
+    i = 0
+    state = 0
+    iteration = 0
+    successes = 0
+    # while iteration < iterations:
+    while True:
+        # display Obstacles
+        robo.DISPLAYSURF.fill(robo.WHITE)
+        robo.displayObstacles(i)
+
+        # binarize Obstacles
+        binaries = np.array(robo.binaries()).reshape(1, -1)
+
 
         # agent make choice
         # choice = np.random.choice([i for i in range(10)])
-        q_value = np.argmax(robo.Agent.model.predict(np.array(binaries).reshape(1, -1)))
+        q_value = np.argmax(robo.Agent.model.predict(binaries))
 
         obs, reward, done, info = robo.step(q_value)
         action = robo.Agent.epsilon_greedy(q_value, iteration)
         successes+= reward
 
-        next_state = state
 
         # Let's memorize what just happened
-        robo.Agent.replay_memory.append(
-            (np.array(binaries).reshape(1, -1), action, reward, next_state, 1.0 - done))
+        if successes > int((robo.Agent.replay_memory_size/2)) and iteration == len(list(robo.Agent.replay_memory)):
+            robo.Agent.model.save('./models/{}.h5'.format(model_name))
+            break
+        else:
+            robo.Agent.replay_memory.append(
+                (np.array(binaries[0]), action, reward, action, 1.0 - done))
+        
+
+        # robo.Agent.stats()
 
         # Train Network
         robo.trainDQN()
@@ -243,6 +299,33 @@ if __name__ == "__main__":
         else:
             pass
 
+        iteration += 1
+
 
         if 0xFF == ord('q'):
             break
+
+
+    lengthOfQueue = len(list(robo.Agent.replay_memory))
+    return successes, iteration, lengthOfQueue
+
+
+
+if __name__ == "__main__":
+    success, iteration, lengthOfQueue = TrainNetwork()
+    print('current iteration: ', str(iteration), ' Total Successes: ', str(success), ' length of queue: ', lengthOfQueue)
+
+    """
+    Result:
+    current iteration:  4999  Total Successes:  2810  length of queue:  4999
+    success:  2810
+    """
+
+    # success, iterations = TestNetwork()
+    # print('Total Successes: ', str(success), ' Total Iteration: ', str(iterations))
+
+    """
+    Result: T
+    otal Successes:  290  Total Iteration:  500
+    """
+          

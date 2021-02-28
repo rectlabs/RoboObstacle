@@ -12,7 +12,7 @@ class LoadNetwork:
     def __init__(self):
         return
     def load(self):
-        networkname = './model/agent.h5'
+        networkname = './model/agent_A.h5'
         return load_model(networkname)
 
 
@@ -30,7 +30,7 @@ class RoboObstacle:
 
         self.dict_shapes = {}
         self.shapes_state = []
-
+        self.updateBinariesKey = {}
         pygame.init()
         self.FPS = fps
         self.fpsClock = pygame.time.Clock()
@@ -38,7 +38,6 @@ class RoboObstacle:
 
     def show_n_shapes(self, n, y_location, generate_shapes = True, xlimit = 10):
         if generate_shapes == True:
-            self.dict_shapes = {}
             self.shapes_state = []
             # n varies from 0 to 7
             x_poses = [i for i in range(xlimit)]
@@ -49,7 +48,9 @@ class RoboObstacle:
                 choice = np.random.choice(['rect', 'circle'])
                 color = tuple([np.random.choice([i for i in range(255)]) for i in range(3)])
 
-                self.dict_shapes[str(m)] = (choice, color, x_location)
+                #shape_state
+                shape_key = str(x_location) +'_'+ str(y_location)
+                self.dict_shapes[shape_key] = (choice, color, x_location)
 
                 if choice == 'rect':
                     pygame.draw.rect(self.DISPLAYSURF, color, (x_location, y_location, 30, 30))
@@ -90,7 +91,7 @@ class RoboObstacle:
     def displayObstacles(self, xlimit = 10, ylimit = 10):
         for i in range(ylimit):
             k = np.random.choice([i for i in range(3, xlimit)])
-            number_of_obstacles = np.random.choice([i for i in range(k)])
+            number_of_obstacles = 3 #np.random.choice([i for i in range(k)])
             location = i * 30
             self.show_n_shapes(number_of_obstacles, y_location = location, generate_shapes = True, xlimit = xlimit)
         
@@ -98,13 +99,14 @@ class RoboObstacle:
 
     def evaluate(self, state):
         obs, reward, done, info = '', False, True, 'failure'
-        if state in self.shapes_state:
+        if state in self.dict_shapes.keys():
             reward = False
         else:
             reward = True
         return obs, reward, done, info 
 
     def step(self, state):
+        # state is the interpretation of the neural network next coordinate (x_y coordinate location)
         # Clear previous displays
 
 
@@ -120,6 +122,50 @@ class RoboObstacle:
         return obs, reward, done, info
 
 
+    def binarize(self, current_coordinate):
+        # current_coordinate must follow this format, x_y. 
+        # where x is the x coordinate
+        # where y is the y coordinate
+        # coordinate = str(x) + '_'+ str(y)
+
+        # degree of movement (left, right, front, back, stay_in_position)
+
+        # 10 locations, modify from index, 4 - 10
+        # 0 - left
+        # 1 - right
+        # 2 - Front
+        # 3 - Back
+
+        x, y = tuple(int(current_coordinate.split('_')[0]), int(current_coordinate.split('_')[1])))
+
+        self.updateBinariesKey[0] = str(x) + '_'+ str(y - 30)
+        self.updateBinariesKey[1] = str(x) + '_'+ str(y + 30)
+        self.updateBinariesKey[2] = str(x - 30) + '_'+ str(y)
+        self.updateBinariesKey[3] = str(x + 30) + '_'+ str(y)
+        for m in range(4, 10):
+            self.updateBinariesKey[m] = str(x) + '_'+ str(y) # remain in position
+
+
+        front_movement = (str(x) + '_'+ str(y - 30)) in self.dict_shapes.keys()
+        back_movement = (str(x) + '_'+ str(y + 30)) in self.dict_shapes.keys()
+        left_movement = (str(x - 30) + '_'+ str(y)) in self.dict_shapes.keys()
+        right_movement = (str(x + 30) + '_'+ str(y)) in self.dict_shapes.keys()
+
+        binary = np.array([front_movement, back_movement, left_movement, right_movement, 0, 0, 0, 0, 0, 0]).reshape(-1, 1)
+        return binary
+
+    
+    def interpret(self, prediction):
+        # interpret the result: x_y
+        try:
+            output = self.updateBinariesKey[prediction].split('_')
+        except:
+            output = self.updateBinariesKey[10].split('_')
+        return output
+
+
+
+
 
 
 if __name__ == "__main__":
@@ -129,11 +175,13 @@ if __name__ == "__main__":
     robo.display()
     i = 0
     state = 0
-    iterations = 2000
+    iterations = 2000000
     iteration = 0
     successes = 0
     while iteration < iterations:
         iteration+= 1
+        print(iteration)
+        # predict and execute movement
         
 
         if 0xFF == ord('q'):

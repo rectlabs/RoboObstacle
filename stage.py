@@ -6,20 +6,19 @@ from keras import Sequential, layers
 from keras.optimizers import Adam
 from keras.layers import Dense
 from collections import deque
+from keras.models import load_model
 pygame.init()
 
-class LoadNetwork:
-    def __init__(self):
-        return
-    def load(self):
-        networkname = './model/agent_A.h5'
-        return load_model(networkname)
+    
 
 
 class RoboObstacle:
-    def __init__(self, fps=50):
+    def __init__(self, fps=50, dimension = (300, 300)):
+        """
+        Dimension: must be a factor of 30 for both x and y.
+        """
         # set up the window
-        self.DISPLAYSURF = pygame.display.set_mode((300, 300), 0, 32)
+        self.DISPLAYSURF = pygame.display.set_mode(dimension, 0, 32)
         pygame.display.set_caption('RoboObstacle')
         # set up the colors
         self.BLACK = (0, 0, 0)
@@ -27,13 +26,19 @@ class RoboObstacle:
         self.RED = (255, 0, 0)
         self.GREEN = (0, 255, 0)
         self.BLUE = (0, 0, 255)
+        self.dimension = dimension
 
         self.dict_shapes = {}
         self.shapes_state = []
         self.updateBinariesKey = {}
+        self.movement = []
         pygame.init()
         self.FPS = fps
         self.fpsClock = pygame.time.Clock()
+
+    def loadNetwork(self, name = 'agent_A'):
+        networkname = './models/{}.h5'.format(name)
+        return load_model(networkname)
 
 
     def show_n_shapes(self, n, y_location, generate_shapes = True, xlimit = 10):
@@ -108,15 +113,20 @@ class RoboObstacle:
     def step(self, state):
         # state is the interpretation of the neural network next coordinate (x_y coordinate location)
         # Clear previous displays
-
+        location_x, location_y = state.split('_')
 
         # decide state of robot
         # State varies from 0 to 9
-        location = (state * 300)/10
         # display the robot
-        pygame.draw.rect(self.DISPLAYSURF, self.BLACK, (location, 270, 30, 30))
+        pygame.draw.rect(self.DISPLAYSURF, self.BLACK, (int(location_x), int(location_y), 30, 30))
+        pygame.draw.rect(self.DISPLAYSURF, self.BLUE, (int(location_x), int(location_y), 25,25))
+        pygame.draw.rect(self.DISPLAYSURF, self.RED, (int(location_x), int(location_y), 20, 20))
+        pygame.draw.rect(self.DISPLAYSURF, self.WHITE, (int(location_x), int(location_y), 15,15))
+        pygame.draw.rect(self.DISPLAYSURF, self.BLUE, (int(location_x), int(location_y), 10, 10))
+        pygame.draw.rect(self.DISPLAYSURF, self.GREEN, (int(location_x), int(location_y), 5, 5))
+        pygame.draw.rect(self.DISPLAYSURF, self.WHITE, (int(location_x), int(location_y), 3, 3))
         self.display()
-        time.sleep()
+        # time.sleep()
 
         obs, reward, done, info = self.evaluate(state)
         return obs, reward, done, info
@@ -136,7 +146,9 @@ class RoboObstacle:
         # 2 - Front
         # 3 - Back
 
-        x, y = tuple(int(current_coordinate.split('_')[0]), int(current_coordinate.split('_')[1])))
+        x, y = tuple(current_coordinate.split('_'))
+        x, y = int(x), int(y)
+    
 
         self.updateBinariesKey[0] = str(x) + '_'+ str(y - 30)
         self.updateBinariesKey[1] = str(x) + '_'+ str(y + 30)
@@ -157,10 +169,39 @@ class RoboObstacle:
     
     def interpret(self, prediction):
         # interpret the result: x_y
-        try:
-            output = self.updateBinariesKey[prediction].split('_')
-        except:
-            output = self.updateBinariesKey[10].split('_')
+        value = np.argmax(prediction)
+        output = self.updateBinariesKey[value]
+        # except:
+        #     output = self.updateBinariesKey[9]
+        return output
+
+
+    def startingCoordinate(self):
+        x, y = 0, 0
+        m, n = self.dimension
+        choice = np.random.choice([i for i in range(m)])
+        for i in range(int(choice/30), int(m/30)):
+            for j in range(int(n/30)):
+                key = str(int(i*30)) + '_' + str(int(j*30))
+                if key in self.dict_shapes.keys():
+                    pass
+                else:
+                    x = int(i*30)
+                    y = int(j*30)
+                    break
+
+            break
+        return str(x) + '_' + str(y), (x, y) #key, coordinate
+
+
+    def TrackNextMove(self, move):
+        self.movement.append(move)
+        output = False
+        counts = np.unique(self.movement, return_counts = True)
+        if counts[0][0] == self.updateBinariesKey[9] and counts[1][0] > 2000:
+            output = True
+        else:
+            output = False
         return output
 
 
@@ -170,6 +211,7 @@ class RoboObstacle:
 
 if __name__ == "__main__":
     robo = RoboObstacle()
+    model = robo.loadNetwork()
     robo.DISPLAYSURF.fill(robo.WHITE)
     robo.displayObstacles()
     robo.display()
@@ -178,12 +220,19 @@ if __name__ == "__main__":
     iterations = 2000000
     iteration = 0
     successes = 0
+    key, coordinate = robo.startingCoordinate()
     while iteration < iterations:
+        # Make move
+        robo.step(key)
         iteration+= 1
-        print(iteration)
         # predict and execute movement
+        binaries = np.array(robo.binarize(key)).reshape(1, -1)
+        key = robo.interpret(model.predict(binaries))
+        # Track next move, if next move is static for 2000 iterations break
+        if robo.TrackNextMove(key):
+            print('exiting program')
+            break
         
-
         if 0xFF == ord('q'):
             break
 

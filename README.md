@@ -1,2 +1,2 @@
 # RoboObstacle
-Training a Robotic Agent to learning how to avoid obstacles
+Training a Robotic Agent to learn how to avoid obstacles

@@ -139,7 +139,7 @@ class RoboObstacle:
 
                 self.dict_shapes[str(m)] = (choice, color, x_location)
 
-                dimension = /self.possibilities
+                dimension = self.windowsize[0]/self.possibilities
 
                 if choice == 'rect':
                     pygame.draw.rect(self.DISPLAYSURF, color, (x_location, y_location, dimension, dimension))

@@ -191,7 +191,7 @@ class RoboObstacle:
             reward = True
         return obs, reward, done, info 
 
-     def step(self, state):
+    def step(self, state):
         # state is the interpretation of the neural network next coordinate (x_y coordinate location)
         # Clear previous displays
         location_x, location_y = state.split('_')
@@ -298,7 +298,7 @@ def TrainNetwork(iterations = 5000, model_name = 'RoboNET'):
     while True:
         # display Obstacles
         robo.DISPLAYSURF.fill(robo.WHITE)
-        robo.displayObstacles()
+        robo.displayObstacles(i)
 
         # binarize Obstacles
         binaries = np.array(robo.binarize()).reshape(1, -1)
